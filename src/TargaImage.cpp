@@ -481,7 +481,7 @@ bool TargaImage::Dither_FS()
 		for (int y = 0; y < this->height; y++)
 		{
 			//even line, left to right
-			if (y % 2 != 0)
+			if (y % 2 == 0)
 			{
 				for (int x = 0; x < this->width; x++)
 				{
