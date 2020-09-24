@@ -462,95 +462,110 @@ bool TargaImage::Dither_Random()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Dither_FS()
 {
+	const double threshold = 127;
+	const double mul = 1.2;
 	if (this->To_Grayscale())
 	{
 		//make a buffer
 		double* temp = new double[this->width*this->height];
 
-		//Copy display to Buffer and convert to float point with [0,1]
+		//Copy display to Buffer and convert to float point with [0,255]
 		for (int i = 0; i < this->height; i++)
 		{
 			for (int j = 0; j < this->width; j++)
 			{
-				temp[i*width + j] = (double)this->getColor(j, i, R) / 255.0;
+				temp[i*width + j] = (double)this->getColor(j, i, R);
 			}
 		}
 
 
 		//Floyd-Steinberg
-		for (int y = 0; y < this->height; y++)
+		for (int y = 1; y < this->height - 1; y++)
 		{
 			//even line, left to right
 			if (y % 2 == 0)
 			{
-				for (int x = 0; x < this->width; x++)
+				for (int x = 1; x < this->width - 1; x++)
 				{
 					double oldPixel = temp[y*width + x];
-					double newPixel = (oldPixel > 0.5) ? 1 : 0;
+					double newPixel;
+					if (oldPixel > threshold)
+					{
+						newPixel = 255;
+					}
+					else
+					{
+						newPixel = 0;
+					}
+
 					double error = oldPixel - newPixel;
 
 					temp[y*width + x] = newPixel;
 
-					if (x < this->width - 1)
-					{
-						temp[y*width + (x + 1)] += error * (7.0 / 16.0);
-					}
-					if (y < this->height - 1)
-					{
-						temp[(y + 1)*width + x] += error * (5.0 / 16.0);
-						if (x > 0)
-						{
-							temp[(y + 1)*width + (x - 1)] += error * (3.0 / 16.0);
-						}
-						if (x < this->width - 1)
-						{
-							temp[(y + 1)*width + (x + 1)] += error * (1.0 / 16.0);
-						}
-					}
+					temp[y*width + (x + 1)] += (error * (7.0 / 16.0))*mul;
+
+					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
+
+					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;					
+
+					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
+
 				}
+
 			}
 			//odd line, right to left
 			else
 			{
-				for (int x = this->width - 1; x >= 0; x--)
+				for (int x = this->width - 2; x > 0; x--)
 				{
-					double newPixel = (temp[y*width + x] > 0.5) ? 1 : 0;
-					double error = temp[y*width + x] - newPixel;
+					double oldPixel = temp[y*width + x];
+					double newPixel;
+					if (oldPixel > threshold)
+					{
+						newPixel = 255;
+					}
+					else
+					{
+						newPixel = 0;
+					}
+					double error = oldPixel - newPixel;
 
 					temp[y*width + x] = newPixel;
 
-					if (x < this->width - 1)
-					{
-						temp[y*width + (x + 1)] += error * (7.0 / 16.0);
-					}
-					if (y < this->height - 1)
-					{
-						temp[(y + 1)*width + x] += error * (5.0 / 16.0);
-						if (x > 0)
-						{
-							temp[(y + 1)*width + (x - 1)] += error * (3.0 / 16.0);
-						}
-						if (x < this->width - 1)
-						{
-							temp[(y + 1)*width + (x + 1)] += error * (1.0 / 16.0);
-						}
-					}
+
+					temp[y*width + (x + 1)] += (error * (7.0 / 16.0))*mul;
+
+					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
+
+					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;					
+
+					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
+
 				}
 			}
-
-			//Copy back to display
-			for (int i = 0; i < this->height; i++)
-			{
-				for (int j = 0; j < this->width; j++)
-				{
-					
-					this->getColor(j, i, R) = temp[i*this->width + j] * 255;
-					this->getColor(j, i, G) = temp[i*this->width + j] * 255;
-					this->getColor(j, i, B) = temp[i*this->width + j] * 255;
-				}
-			}
-
 		}
+
+		//Copy back to display
+		for (int i = 0; i < this->height; i++)
+		{
+			for (int j = 0; j < this->width; j++)
+			{
+
+				if (temp[i*this->width + j] > threshold)
+				{
+					temp[i*this->width + j] = 255;
+				}
+				else
+				{
+					temp[i*this->width + j] = 0;
+				}
+
+				this->getColor(j, i, R) = temp[i*this->width + j] ;
+				this->getColor(j, i, G) = temp[i*this->width + j] ;
+				this->getColor(j, i, B) = temp[i*this->width + j] ;
+			}
+		}
+
 		//recycle memory
 		delete[] temp;
 		return true;
