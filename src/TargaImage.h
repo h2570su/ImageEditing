@@ -81,6 +81,24 @@ class TargaImage
 	// Draws a filled circle according to the stroke data
         void Paint_Stroke(const Stroke& s);
 
+	// get indiv Color
+		uint8_t invaildPixel;
+		enum RGBA
+		{
+			R,G,B,A
+		};
+		inline uint8_t& getColor(int x, int y, RGBA rgba)
+		{			 
+			if (x < 0 || y < 0 || rgba < 0 || rgba>3 || x >= width || y >= height)
+			{
+				return invaildPixel;
+			}
+			else
+			{
+				return this->data[4 * (y * width + x) + rgba];
+			}
+		}
+
     // members
     public:
         int		width;	    // width of the image in pixels
