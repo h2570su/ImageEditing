@@ -488,16 +488,7 @@ bool TargaImage::Dither_FS()
 				for (int x = 1; x < this->width - 1; x++)
 				{
 					double oldPixel = temp[y*width + x];
-					double newPixel;
-					if (oldPixel > threshold)
-					{
-						newPixel = 255;
-					}
-					else
-					{
-						newPixel = 0;
-					}
-
+					double newPixel = (oldPixel > threshold) ? 255 : 0;
 					double error = oldPixel - newPixel;
 
 					temp[y*width + x] = newPixel;
@@ -519,15 +510,7 @@ bool TargaImage::Dither_FS()
 				for (int x = this->width - 2; x > 0; x--)
 				{
 					double oldPixel = temp[y*width + x];
-					double newPixel;
-					if (oldPixel > threshold)
-					{
-						newPixel = 255;
-					}
-					else
-					{
-						newPixel = 0;
-					}
+					double newPixel = (oldPixel > threshold) ? 255 : 0;
 					double error = oldPixel - newPixel;
 
 					temp[y*width + x] = newPixel;
