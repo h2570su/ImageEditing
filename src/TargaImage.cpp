@@ -224,7 +224,7 @@ bool TargaImage::To_Grayscale()
 		{
 
 			//Every pixel to gray;
-			int result = (int)floor((this->getColor(j, i, R) * 0.299f) + (this->getColor(j, i, G) * 0.587f) + (this->getColor(j, i, B) * 0.114f));
+			int result = (int)floor((this->getColor(j, i, R) * 0.299) + (this->getColor(j, i, G) * 0.587) + (this->getColor(j, i, B) * 0.114));
 			this->getColor(j, i, R) = result;
 			this->getColor(j, i, G) = result;
 			this->getColor(j, i, B) = result;
@@ -497,7 +497,7 @@ bool TargaImage::Dither_FS()
 
 					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
 
-					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;					
+					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;
 
 					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
 
@@ -520,7 +520,7 @@ bool TargaImage::Dither_FS()
 
 					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
 
-					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;					
+					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;
 
 					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
 
@@ -543,9 +543,9 @@ bool TargaImage::Dither_FS()
 					temp[i*this->width + j] = 0;
 				}
 
-				this->getColor(j, i, R) = temp[i*this->width + j] ;
-				this->getColor(j, i, G) = temp[i*this->width + j] ;
-				this->getColor(j, i, B) = temp[i*this->width + j] ;
+				this->getColor(j, i, R) = temp[i*this->width + j];
+				this->getColor(j, i, G) = temp[i*this->width + j];
+				this->getColor(j, i, B) = temp[i*this->width + j];
 			}
 		}
 
@@ -571,6 +571,7 @@ bool TargaImage::Dither_Bright()
 	if (this->To_Grayscale())
 	{
 		//measure brightness
+		uint64_t counter[256] = { 0 };
 		uint64_t sum = 0;
 		//Whole image
 		for (int i = 0; i < this->height; i++)
@@ -579,70 +580,35 @@ bool TargaImage::Dither_Bright()
 			{
 				//add to sum;
 				sum += this->getColor(j, i, R);
+
+				//add to indiv counter
+				counter[this->getColor(j, i, R)]++;
 			}
 		}
 
-		//binary serach
-		int upBound = 255;
-		int downBound = 0;
-		uint8_t* tempData = new uint8_t[this->width*this->height * 4];
-		do
+		sum /= 255;
+
+
+		int threshold = 255;
+		uint64_t whiteCount = 0;
+		for (threshold = 255; threshold >= 0; threshold--)
 		{
-
-			memcpy_s(tempData, this->width*this->height * 4, this->data, this->width*this->height * 4);
-			uint64_t  newSum = 0;
-
-			//Whole image to mid
-			for (int i = 0; i < this->height; i++)
-			{
-				for (int j = 0; j < this->width; j++)
-				{
-					//if pixel >=128  convert to 255
-					if (tempData[(i*this->width + j) * 4] > (upBound + downBound) / 2)
-					{
-						tempData[(i*this->width + j) * 4] = 255;
-						tempData[(i*this->width + j) * 4 + 1] = 255;
-						tempData[(i*this->width + j) * 4 + 2] = 255;
-					}
-					//or to 0
-					else
-					{
-						tempData[(i*this->width + j) * 4] = 0;
-						tempData[(i*this->width + j) * 4 + 1] = 0;
-						tempData[(i*this->width + j) * 4 + 2] = 0;
-					}
-				}
-			}
-
-			//cal Brightness
-			for (int i = 0; i < this->height; i++)
-			{
-				for (int j = 0; j < this->width; j++)
-				{
-					newSum += tempData[(i*this->width + j) * 4];
-				}
-			}
-
-			if (newSum < sum)
-			{
-				upBound = (upBound + downBound) / 2 - 1;
-			}
-			else if (newSum > sum)
-			{
-				downBound = (upBound + downBound) / 2 + 1;
-			}
-			else
+			whiteCount += counter[threshold];
+			if (whiteCount >= sum)
 			{
 				break;
 			}
+		}
 
-
-		} while (downBound <= upBound);
-
-
-		memcpy_s(this->data, this->width*this->height * 4, tempData, this->width*this->height * 4);
-		delete[] tempData;
-
+		for (int i = 0; i < this->height; i++)
+		{
+			for (int j = 0; j < this->width; j++)
+			{
+				this->getColor(j, i, R) = (this->getColor(j, i, R) >= threshold) ? 255 : 0;
+				this->getColor(j, i, G) = this->getColor(j, i, R);
+				this->getColor(j, i, B) = this->getColor(j, i, R);
+			}
+		}
 
 		return true;
 	}
@@ -842,6 +808,7 @@ bool TargaImage::Difference(TargaImage* pImage)
 		cout << "Difference: Images not the same size\n";
 		return false;
 	}// if
+	uint64_t diff = 0;
 
 	for (int i = 0; i < width * height * 4; i += 4)
 	{
@@ -854,9 +821,17 @@ bool TargaImage::Difference(TargaImage* pImage)
 		data[i] = abs(rgb1[0] - rgb2[0]);
 		data[i + 1] = abs(rgb1[1] - rgb2[1]);
 		data[i + 2] = abs(rgb1[2] - rgb2[2]);
+		if (data[i] != 0 || data[i + 1] != 0 || data[i + 2] != 0)
+		{
+			diff += data[i] + data[i + 1] + data[i + 2];
+			/*data[i] = 255;
+			data[i + 1] = 255;
+			data[i + 2] = 255;*/
+		}
 		data[i + 3] = 255;
-	}
 
+	}
+	cout << "Diffence: " << diff << " val*Pixel, in: " << (double)diff / (this->width*this->height * 3 * 255) << " %" << endl;
 	return true;
 }// Difference
 
@@ -868,8 +843,69 @@ bool TargaImage::Difference(TargaImage* pImage)
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Filter_Box()
 {
-	ClearToBlack();
-	return false;
+	//new image canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	//prevent over pixel be wrong color;
+	this->invaildPixel = 0;
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//color sum in RGB
+			int sum[3] = { 0 };
+			//5x5 matrix
+			for (int k = -2; k <= 2; k++)
+			{
+				for (int l = -2; l <= 2; l++)
+				{
+					//offseting xy
+					int x = j + l;
+					int y = i + k;
+					//out of bound, reflect
+					if (x < 0)
+					{
+						x *= -1;
+					}
+					if (x >= this->width)
+					{
+						int ref = x - this->width + 1;
+						x -= 2 * ref;
+					}
+
+					if (y < 0)
+					{
+						y *= -1;
+					}
+					if (y >= this->height)
+					{
+						int ref = y - this->height + 1;
+						y -= 2 * ref;
+					}
+					//summing
+					sum[0] += this->getColor(x, y, R);
+					sum[1] += this->getColor(x, y, G);
+					sum[2] += this->getColor(x, y, B);
+
+				}
+			}
+			//div by 5x5
+			sum[0] /= 25;
+			sum[1] /= 25;
+			sum[2] /= 25;
+
+			//to canvas
+			canvas[(i*this->width + j) * 4] = sum[0];
+			canvas[(i*this->width + j) * 4 + 1] = sum[1];
+			canvas[(i*this->width + j) * 4 + 2] = sum[2];
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//copy canvas to display
+	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
+	//recycle memory
+	delete[] canvas;
+	return true;
 }// Filter_Box
 
 
@@ -881,8 +917,97 @@ bool TargaImage::Filter_Box()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Filter_Bartlett()
 {
-	ClearToBlack();
-	return false;
+	//Bartlett filter matrix
+	double weightMat[5][5] =
+	{
+		{0.027,0.111,0.194,0.111,0.027},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.194,0.611,1.000,0.611,0.194},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.027,0.111,0.194,0.111,0.027}
+	};
+	/*
+		{0.0277,0.1111,0.1944,0.1111,0.0277},
+		{0.1111,0.3611,0.6111,0.3611,0.1111},
+		{0.1944,0.6111,1.0000,0.6111,0.1944},
+		{0.1111,0.3611,0.6111,0.3611,0.1111},
+		{0.0277,0.1111,0.1944,0.1111,0.0277}
+
+	*/
+	double divider = 0;
+	for (int i = 0; i < 5; i++)
+	{
+		for (int j = 0; j < 5; j++)
+		{
+			divider += weightMat[i][j];
+		}
+	}
+
+	//new image canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	//prevent over pixel be wrong color;
+	this->invaildPixel = 0;
+
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//color sum in RGB
+			int sum[3] = { 0 };
+			//5x5 matrix
+			for (int k = -2; k <= 2; k++)
+			{
+				for (int l = -2; l <= 2; l++)
+				{
+
+					//offseting xy
+					int x = j + l;
+					int y = i + k;
+					//out of bound, reflect
+					if (x < 0)
+					{
+						x *= -1;
+					}
+					if (x >= this->width)
+					{
+						int ref = x - this->width + 1;
+						x -= 2 * ref;
+					}
+
+					if (y < 0)
+					{
+						y *= -1;
+					}
+					if (y >= this->height)
+					{
+						int ref = y - this->height + 1;
+						y -= 2 * ref;
+					}
+					//summing
+					sum[0] += this->getColor(x, y, R)*weightMat[l + 2][k + 2];
+					sum[1] += this->getColor(x, y, G)*weightMat[l + 2][k + 2];
+					sum[2] += this->getColor(x, y, B)*weightMat[l + 2][k + 2];
+
+				}
+			}
+			//div by 5x5
+			sum[0] /= divider;
+			sum[1] /= divider;
+			sum[2] /= divider;
+
+			//to canvas
+			canvas[(i*this->width + j) * 4] = sum[0];
+			canvas[(i*this->width + j) * 4 + 1] = sum[1];
+			canvas[(i*this->width + j) * 4 + 2] = sum[2];
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//copy canvas to display
+	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
+	//recycle memory
+	delete[] canvas;
+	return true;
 }// Filter_Bartlett
 
 
@@ -894,8 +1019,7 @@ bool TargaImage::Filter_Bartlett()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Filter_Gaussian()
 {
-	ClearToBlack();
-	return false;
+	return Filter_Gaussian_N(5);
 }// Filter_Gaussian
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -905,10 +1029,143 @@ bool TargaImage::Filter_Gaussian()
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+//from: https://stackoverflow.com/questions/9330915/number-of-combinations-n-choose-r-in-c
+inline unsigned long long nChoosek(unsigned int n, unsigned int k)
+{
+	if (k > n) return 0;
+	if (k * 2 > n) k = n - k;
+	if (k == 0) return 1;
+
+	unsigned long long result = n;
+	for (int i = 2; i <= k; ++i) {
+		result *= (n - i + 1);
+		result /= i;
+	}
+	return result;
+}
+
 bool TargaImage::Filter_Gaussian_N(unsigned int N)
 {
-	ClearToBlack();
-	return false;
+	//generate Gaussian filter matrix
+	double** weightMat = new double*[N];
+	for (int i = 0; i < N; i++)
+	{
+		weightMat[i] = new double[N];
+	}
+
+	//generate 1D binomial table
+	uint64_t* bin = new uint64_t[N];
+	for (int i = 0; i < N; i++)
+	{
+		bin[i] = nChoosek(N - 1, i);
+	}
+
+	//calculate 2D Gaussian martix
+	for (int i = 0; i < N; i++)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			weightMat[i][j] = bin[i] * bin[j];
+		}
+	}
+
+	//recycle memory
+	delete[] bin;
+
+
+
+	//calculate divider
+	double divider = 0;
+	for (int i = 0; i < N; i++)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			divider += weightMat[i][j];
+		}
+	}
+	//pre divide
+	for (int i = 0; i < N; i++)
+	{
+		for (int j = 0; j < N; j++)
+		{
+			weightMat[i][j] /= divider;
+		}
+	}
+
+
+	//new image canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	//prevent over pixel be wrong color;
+	this->invaildPixel = 0;
+
+	int halfN = (int)(N / 2);
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//color sum in RGB
+			double sum[3] = { 0 };
+			//NxN matrix
+
+			for (int k = -halfN; k <= halfN; k++)
+			{
+				for (int l = -halfN; l <= halfN; l++)
+				{
+
+					//offseting xy
+					int x = j + l;
+					int y = i + k;
+					//out of bound, reflect
+					if (x < 0)
+					{
+						x *= -1;
+					}
+					if (x >= this->width)
+					{
+						int ref = x - this->width + 1;
+						x -= 2 * ref;
+					}
+
+					if (y < 0)
+					{
+						y *= -1;
+					}
+					if (y >= this->height)
+					{
+						int ref = y - this->height + 1;
+						y -= 2 * ref;
+					}
+					//summing
+					sum[0] += this->getColor(x, y, R)*weightMat[l + halfN][k + halfN];
+					sum[1] += this->getColor(x, y, G)*weightMat[l + halfN][k + halfN];
+					sum[2] += this->getColor(x, y, B)*weightMat[l + halfN][k + halfN];
+
+				}
+			}
+			//div by 5x5
+			//sum[0] /= divider;
+			//sum[1] /= divider;
+			//sum[2] /= divider;
+
+			//to canvas
+			canvas[(i*this->width + j) * 4] = sum[0];
+			canvas[(i*this->width + j) * 4 + 1] = sum[1];
+			canvas[(i*this->width + j) * 4 + 2] = sum[2];
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//copy canvas to display
+	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
+	//recycle memory
+	delete[] canvas;
+	for (int i = 0; i < N; i++)
+	{
+		delete[] weightMat[i];
+	}
+	delete[] weightMat;
+
+	return true;
 }// Filter_Gaussian_N
 
 
