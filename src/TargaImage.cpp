@@ -22,6 +22,7 @@
 #include <map>
 #include <algorithm>
 #include <ctime>
+#include <ppl.h>
 
 using namespace std;
 
@@ -275,18 +276,10 @@ bool TargaImage::Quant_Populosity()
 	{
 		for (int j = 0; j < this->width; j++)
 		{
-
-			//every pixel to 5-bit
-
-			this->getColor(j, i, R) &= 0xF8;
-
-			this->getColor(j, i, G) &= 0xF8;
-
-			this->getColor(j, i, B) &= 0xF8;
 			//build 15-bit color
-			uint16_t color = this->getColor(j, i, R) << 7;
-			color |= this->getColor(j, i, G) << 2;
-			color |= this->getColor(j, i, B) >> 3;
+			uint16_t color = (this->getColor(j, i, R) & 0xF8) << 7;
+			color |= (this->getColor(j, i, G) & 0xF8) << 2;
+			color |= (this->getColor(j, i, B) & 0xF8) >> 3;
 			//find in list  if not exist init to 1
 			auto iterFindInlist = list.find(color);
 			if (iterFindInlist == list.end())
@@ -322,42 +315,49 @@ bool TargaImage::Quant_Populosity()
 		sorted_256_list.erase(sorted_256_list.begin() + 256, sorted_256_list.end());
 	}
 
-	//Whole image to closest color
-	for (int i = 0; i < this->height; i++)
+	//Whole image to closest color, using parallel for
+	concurrency::parallel_for(0, this->width*this->height, [this, sorted_256_list](int idx)
 	{
-		for (int j = 0; j < this->width; j++)
+		//convert xy
+		int i = idx / this->width;
+		int j = idx % this->width;
+		//build 15-bit color
+
+		uint8_t red = this->getColor(j, i, R);
+		uint8_t green = this->getColor(j, i, G);
+		uint8_t blue = this->getColor(j, i, B);
+
+		//find min Distance color
+		int index = 0;
+		double minDistance = INFINITY;
+
+		int k = 0;
+		uint16_t findColor = 0;
+		for (const auto& c : sorted_256_list)
 		{
-			//build 15-bit color
-			uint8_t red = this->getColor(j, i, R) >> 3;
-			uint8_t green = this->getColor(j, i, G) >> 3;
-			uint8_t blue = this->getColor(j, i, B) >> 3;
-
-			//find min Distance color
-			int index = 0;
-			double minDistance = INFINITY;
-
-			int k = 0;
-			for (const auto& c : sorted_256_list)
+			//bit mask out individual RGB
+			int r = red - ((c.first & 0x7C00) >> 7);
+			int g = green - ((c.first & 0x03E0) >> 2);
+			int b = blue - ((c.first & 0x1F) << 3);
+			double dist = r * r + g * g + b * b;
+			if (dist < minDistance)
 			{
-				//bit mask out individual RGB
-				double dist = pow((red - ((c.first & 0x7C00) >> 10)), 2) + pow(green - ((c.first & 0x03E0) >> 5), 2) + pow(blue - (c.first & 0x1F), 2);
-				if (dist < minDistance)
+				minDistance = dist;
+				index = k;
+				findColor = c.first;
+				if (minDistance == 0.0)
 				{
-					minDistance = dist;
-					index = k;
-					if (minDistance == 0.0)
-					{
-						break;
-					}
+					break;
 				}
-				k++;
 			}
-			//save color
-			this->getColor(j, i, R) = (sorted_256_list[index].first & 0x7C00) >> 7; //R
-			this->getColor(j, i, G) = (sorted_256_list[index].first & 0x03E0) >> 2; //G
-			this->getColor(j, i, B) = (sorted_256_list[index].first & 0x001F) << 3; //B
+			k++;
 		}
-	}
+		//save color
+		this->getColor(j, i, R) = (findColor & 0x7C00) >> 7; //R
+		this->getColor(j, i, G) = (findColor & 0x03E0) >> 2; //G
+		this->getColor(j, i, B) = (findColor & 0x001F) << 3; //B
+
+	});
 
 	return true;
 }// Quant_Populosity
@@ -462,67 +462,85 @@ bool TargaImage::Dither_Random()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Dither_FS()
 {
-	const double threshold = 127;
-	const double mul = 1.2;
+	const float threshold = 0.5;
 	if (this->To_Grayscale())
 	{
 		//make a buffer
-		double* temp = new double[this->width*this->height];
+		float* temp = new float[this->width*this->height];
 
-		//Copy display to Buffer and convert to float point with [0,255]
+		//Copy display to Buffer and convert to float point with [0,1]
 		for (int i = 0; i < this->height; i++)
 		{
 			for (int j = 0; j < this->width; j++)
 			{
-				temp[i*width + j] = (double)this->getColor(j, i, R);
+				temp[i*width + j] = (float)this->getColor(j, i, R) / 255.0;
 			}
 		}
 
 
 		//Floyd-Steinberg
-		for (int y = 1; y < this->height - 1; y++)
+		for (int y = 0; y < this->height; y++)
 		{
 			//even line, left to right
 			if (y % 2 == 0)
 			{
-				for (int x = 1; x < this->width - 1; x++)
+				for (int x = 0; x < this->width; x++)
 				{
-					double oldPixel = temp[y*width + x];
-					double newPixel = (oldPixel > threshold) ? 255 : 0;
-					double error = oldPixel - newPixel;
+					float oldPixel = temp[y*this->width + x];
+					float newPixel = (oldPixel > threshold) ? 1.0 : 0.0;
+					float error = oldPixel - newPixel;
 
-					temp[y*width + x] = newPixel;
+					temp[y*this->width + x] = newPixel;
 
-					temp[y*width + (x + 1)] += (error * (7.0 / 16.0))*mul;
+					if (x + 1 < this->width)
+					{
+						temp[y*this->width + (x + 1)] += (error * (7.0 / 16.0));
+					}
 
-					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
+					if (y + 1 < this->height)
+					{
+						if (x - 1 >= 0)
+						{
+							temp[(y + 1)*this->width + (x - 1)] += (error * (3.0 / 16.0));
+						}
 
-					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;
-
-					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
-
+						temp[(y + 1)*this->width + x] += (error * (5.0 / 16.0));
+						if (x + 1 < this->width)
+						{
+							temp[(y + 1)*this->width + (x + 1)] += (error * (1.0 / 16.0));
+						}
+					}
 				}
 
 			}
 			//odd line, right to left
 			else
 			{
-				for (int x = this->width - 2; x > 0; x--)
+				for (int x = this->width - 1; x >= 0; x--)
 				{
-					double oldPixel = temp[y*width + x];
-					double newPixel = (oldPixel > threshold) ? 255 : 0;
-					double error = oldPixel - newPixel;
+					float oldPixel = temp[y*width + x];
+					float newPixel = (oldPixel > threshold) ? 1.0 : 0.0;
+					float error = oldPixel - newPixel;
 
-					temp[y*width + x] = newPixel;
+					temp[y*this->width + x] = newPixel;
 
+					if (x - 1 >= 0)
+					{
+						temp[y*this->width + (x - 1)] += (error * (7.0 / 16.0));
+					}
 
-					temp[y*width + (x + 1)] += (error * (7.0 / 16.0))*mul;
-
-					temp[(y + 1)*width + (x - 1)] += (error * (3.0 / 16.0))*mul;
-
-					temp[(y + 1)*width + x] += (error * (5.0 / 16.0))*mul;
-
-					temp[(y + 1)*width + (x + 1)] += (error * (1.0 / 16.0))*mul;
+					if (y + 1 < this->height)
+					{
+						if (x + 1 < this->width)
+						{
+							temp[(y + 1)*this->width + (x + 1)] += (error * (3.0 / 16.0));
+						}
+						temp[(y + 1)*this->width + x] += (error * (5.0 / 16.0));
+						if (x - 1 >= 0)
+						{
+							temp[(y + 1)*this->width + (x - 1)] += (error * (1.0 / 16.0));
+						}
+					}
 
 				}
 			}
@@ -692,8 +710,304 @@ bool TargaImage::Dither_Cluster()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Dither_Color()
 {
-	ClearToBlack();
-	return false;
+	const float RGshades[]{ 0 / 255.0, 36 / 255.0, 73 / 255.0, 109 / 255.0, 146 / 255.0, 182 / 255.0, 219 / 255.0, 255 / 255.0 };
+	const float Bshades[]{ 0 / 255.0, 85 / 255.0, 170 / 255.0, 255 / 255.0 };
+
+	float thresholdOffset = 0 / 255.0;
+	float errorRate = 1;
+
+	//make a buffer
+	float* temp = new float[this->width*this->height * 3];
+
+	//Copy display to Buffer and convert to float point with [0,1]
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			temp[(i*width + j) * 3] = (float)this->getColor(j, i, R) / 255.0;
+			temp[(i*width + j) * 3 + 1] = (float)this->getColor(j, i, G) / 255.0;
+			temp[(i*width + j) * 3 + 2] = (float)this->getColor(j, i, B) / 255.0;
+		}
+	}
+
+
+	//Floyd-Steinberg
+	for (int y = 0; y < this->height; y++)
+	{
+		//even line, left to right
+		if (y % 2 == 0)
+		{
+			for (int x = 0; x < this->width; x++)
+			{
+				//record old color
+				float oldPixelR = temp[(y*this->width + x) * 3];
+				float oldPixelG = temp[(y*this->width + x) * 3 + 1];
+				float oldPixelB = temp[(y*this->width + x) * 3 + 2];
+				float newPixelR = 0;
+				float newPixelG = 0;
+				float newPixelB = 0;
+				//pick new color
+				//R
+				for (int i = 1; i < 8; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelR >= RGshades[i - 1] && oldPixelR <= RGshades[i])
+					{
+						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelR = RGshades[i];
+						}
+						else
+						{
+							newPixelR = RGshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelR > 1.0)
+				{
+					newPixelR = 1.0;
+				}
+				if (oldPixelR < 0)
+				{
+					newPixelR = 0;
+				}
+
+				//G
+				for (int i = 1; i < 8; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelG >= RGshades[i - 1] && oldPixelG <= RGshades[i])
+					{
+						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelG = RGshades[i];
+						}
+						else
+						{
+							newPixelG = RGshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelG > 1.0)
+				{
+					newPixelG = 1.0;
+				}
+				if (oldPixelG < 0)
+				{
+					newPixelG = 0;
+				}
+
+				//B
+				for (int i = 1; i < 4; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelB >= Bshades[i - 1] && oldPixelB <= Bshades[i])
+					{
+						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelB = Bshades[i];
+						}
+						else
+						{
+							newPixelB = Bshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelB > 1.0)
+				{
+					newPixelB = 1.0;
+				}
+				if (oldPixelB < 0)
+				{
+					newPixelB = 0;
+				}	
+							   
+				float errorR = (oldPixelR - newPixelR)*errorRate;
+				float errorG = (oldPixelG - newPixelG)*errorRate;
+				float errorB = (oldPixelB - newPixelB)*errorRate;
+
+				temp[(y*this->width + x) * 3] = newPixelR;
+				temp[(y*this->width + x) * 3 + 1] = newPixelG;
+				temp[(y*this->width + x) * 3 + 2] = newPixelB;
+
+				if (x + 1 < this->width)
+				{
+					temp[(y*this->width + (x + 1)) * 3] += (errorR * (7.0 / 16.0));
+					temp[(y*this->width + (x + 1)) * 3 + 1] += (errorG * (7.0 / 16.0));
+					temp[(y*this->width + (x + 1)) * 3 + 2] += (errorB * (7.0 / 16.0));
+				}
+
+				if (y + 1 < this->height)
+				{
+					if (x - 1 >= 0)
+					{
+						temp[((y + 1)*this->width + (x - 1)) * 3] += (errorR * (3.0 / 16.0));
+						temp[((y + 1)*this->width + (x - 1)) * 3 + 1] += (errorG * (3.0 / 16.0));
+						temp[((y + 1)*this->width + (x - 1)) * 3 + 2] += (errorB * (3.0 / 16.0));
+					}
+
+					temp[((y + 1)*this->width + x) * 3] += (errorR * (5.0 / 16.0));
+					temp[((y + 1)*this->width + x) * 3 + 1] += (errorG * (5.0 / 16.0));
+					temp[((y + 1)*this->width + x) * 3 + 2] += (errorB * (5.0 / 16.0));
+
+					if (x + 1 < this->width)
+					{
+						temp[((y + 1)*this->width + (x + 1)) * 3] += (errorR * (1.0 / 16.0));
+						temp[((y + 1)*this->width + (x + 1)) * 3 + 1] += (errorG * (1.0 / 16.0));
+						temp[((y + 1)*this->width + (x + 1)) * 3 + 2] += (errorB * (1.0 / 16.0));
+					}
+				}
+			}
+
+		}
+		//odd line, right to left
+		else
+		{
+			for (int x = this->width - 1; x >= 0; x--)
+			{
+				//record old color
+				float oldPixelR = temp[(y*this->width + x) * 3];
+				float oldPixelG = temp[(y*this->width + x) * 3 + 1];
+				float oldPixelB = temp[(y*this->width + x) * 3 + 2];
+				float newPixelR = 0;
+				float newPixelG = 0;
+				float newPixelB = 0;
+				//pick new color
+				//R
+				for (int i = 1; i < 8; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelR >= RGshades[i - 1] && oldPixelR <= RGshades[i])
+					{
+						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelR = RGshades[i];
+						}
+						else
+						{
+							newPixelR = RGshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelR > 1.0)
+				{
+					newPixelR = 1.0;
+				}
+				if (oldPixelR < 0)
+				{
+					newPixelR = 0;
+				}
+
+				//G
+				for (int i = 1; i < 8; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelG >= RGshades[i - 1] && oldPixelG <= RGshades[i])
+					{
+						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelG = RGshades[i];
+						}
+						else
+						{
+							newPixelG = RGshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelG > 1.0)
+				{
+					newPixelG = 1.0;
+				}
+				if (oldPixelG < 0)
+				{
+					newPixelG = 0;
+				}
+
+				//B
+				for (int i = 1; i < 4; i++)
+				{
+					//if pixel in Range [i-1]to[i]
+					if (oldPixelB >= Bshades[i - 1] && oldPixelB <= Bshades[i])
+					{
+						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2)+thresholdOffset)
+						{
+							newPixelB = Bshades[i];
+						}
+						else
+						{
+							newPixelB = Bshades[i - 1];
+						}
+						break;
+					}
+				}
+				if (oldPixelB > 1.0)
+				{
+					newPixelB = 1.0;
+				}
+				if (oldPixelB < 0)
+				{
+					newPixelB = 0;
+				}	
+
+				float errorR = (oldPixelR - newPixelR)*errorRate;
+				float errorG = (oldPixelG - newPixelG)*errorRate;
+				float errorB = (oldPixelB - newPixelB)*errorRate;
+
+				temp[(y*this->width + x) * 3] = newPixelR;
+				temp[(y*this->width + x) * 3 + 1] = newPixelG;
+				temp[(y*this->width + x) * 3 + 2] = newPixelB;
+
+				if (x - 1 >= 0)
+				{
+					temp[(y*this->width + (x - 1)) * 3] += (errorR * (7.0 / 16.0));
+					temp[(y*this->width + (x - 1)) * 3 + 1] += (errorG * (7.0 / 16.0));
+					temp[(y*this->width + (x - 1)) * 3 + 2] += (errorB * (7.0 / 16.0));
+				}
+
+				if (y + 1 < this->height)
+				{
+					if (x + 1 < this->width)
+					{
+						temp[((y + 1)*this->width + (x + 1)) * 3] += (errorR * (3.0 / 16.0));
+						temp[((y + 1)*this->width + (x + 1)) * 3 + 1] += (errorG * (3.0 / 16.0));
+						temp[((y + 1)*this->width + (x + 1)) * 3 + 2] += (errorB * (3.0 / 16.0));
+					}
+
+					temp[((y + 1)*this->width + x) * 3] += (errorR * (5.0 / 16.0));
+					temp[((y + 1)*this->width + x) * 3 + 1] += (errorG * (5.0 / 16.0));
+					temp[((y + 1)*this->width + x) * 3 + 2] += (errorB * (5.0 / 16.0));
+					if (x - 1 >= 0)
+					{
+						temp[((y + 1)*this->width + (x - 1)) * 3] += (errorR * (1.0 / 16.0));
+						temp[((y + 1)*this->width + (x - 1)) * 3 + 1] += (errorG * (1.0 / 16.0));
+						temp[((y + 1)*this->width + (x - 1)) * 3 + 2] += (errorB * (1.0 / 16.0));
+					}
+				}
+
+			}
+		}
+	}
+
+	//Copy back to display
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			this->getColor(j, i, R) = temp[(i*this->width + j) * 3] * 255.0;
+			this->getColor(j, i, G) = temp[(i*this->width + j) * 3 + 1] * 255.0;
+			this->getColor(j, i, B) = temp[(i*this->width + j) * 3 + 2] * 255.0;
+		}
+	}
+
+	//recycle memory
+	delete[] temp;
+	return true;
+
 }// Dither_Color
 
 
@@ -826,7 +1140,7 @@ bool TargaImage::Difference(TargaImage* pImage)
 			diff += data[i] + data[i + 1] + data[i + 2];
 			/*data[i] = 255;
 			data[i + 1] = 255;
-			data[i + 2] = 255;*/
+			data[i + 2] = 255;*/	
 		}
 		data[i + 3] = 255;
 
