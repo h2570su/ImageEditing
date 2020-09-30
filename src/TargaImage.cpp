@@ -753,7 +753,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelR >= RGshades[i - 1] && oldPixelR <= RGshades[i])
 					{
-						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelR = RGshades[i];
 						}
@@ -779,7 +779,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelG >= RGshades[i - 1] && oldPixelG <= RGshades[i])
 					{
-						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelG = RGshades[i];
 						}
@@ -805,7 +805,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelB >= Bshades[i - 1] && oldPixelB <= Bshades[i])
 					{
-						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2)+thresholdOffset)
+						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelB = Bshades[i];
 						}
@@ -823,8 +823,8 @@ bool TargaImage::Dither_Color()
 				if (oldPixelB < 0)
 				{
 					newPixelB = 0;
-				}	
-							   
+				}
+
 				float errorR = (oldPixelR - newPixelR)*errorRate;
 				float errorG = (oldPixelG - newPixelG)*errorRate;
 				float errorB = (oldPixelB - newPixelB)*errorRate;
@@ -882,7 +882,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelR >= RGshades[i - 1] && oldPixelR <= RGshades[i])
 					{
-						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						if (oldPixelR >= ((RGshades[i - 1] + RGshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelR = RGshades[i];
 						}
@@ -908,7 +908,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelG >= RGshades[i - 1] && oldPixelG <= RGshades[i])
 					{
-						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2)+thresholdOffset)
+						if (oldPixelG >= ((RGshades[i - 1] + RGshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelG = RGshades[i];
 						}
@@ -934,7 +934,7 @@ bool TargaImage::Dither_Color()
 					//if pixel in Range [i-1]to[i]
 					if (oldPixelB >= Bshades[i - 1] && oldPixelB <= Bshades[i])
 					{
-						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2)+thresholdOffset)
+						if (oldPixelB >= ((Bshades[i - 1] + Bshades[i]) / 2) + thresholdOffset)
 						{
 							newPixelB = Bshades[i];
 						}
@@ -952,7 +952,7 @@ bool TargaImage::Dither_Color()
 				if (oldPixelB < 0)
 				{
 					newPixelB = 0;
-				}	
+				}
 
 				float errorR = (oldPixelR - newPixelR)*errorRate;
 				float errorG = (oldPixelG - newPixelG)*errorRate;
@@ -1140,7 +1140,7 @@ bool TargaImage::Difference(TargaImage* pImage)
 			diff += data[i] + data[i + 1] + data[i + 2];
 			/*data[i] = 255;
 			data[i + 1] = 255;
-			data[i + 2] = 255;*/	
+			data[i + 2] = 255;*/
 		}
 		data[i + 3] = 255;
 
@@ -1532,8 +1532,7 @@ bool TargaImage::NPR_Paint()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Half_Size()
 {
-	ClearToBlack();
-	return false;
+	return this->Resize(0.5);
 }// Half_Size
 
 
@@ -1544,8 +1543,7 @@ bool TargaImage::Half_Size()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Double_Size()
 {
-	ClearToBlack();
-	return false;
+	return this->Resize(2.0);
 }// Double_Size
 
 
@@ -1557,8 +1555,214 @@ bool TargaImage::Double_Size()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Resize(float scale)
 {
-	ClearToBlack();
-	return false;
+	const float filter33[3][3] =
+	{
+		{1 / 16.0, 1 / 8.0, 1 / 16.0},
+		{1 / 8.0, 1 / 4.0, 1 / 8.0},
+		{1 / 16.0, 1 / 8.0, 1 / 16.0},
+	};
+
+	const float filter34[3][4] =
+	{
+		{1 / 32.0, 3 / 32.0, 3 / 32.0, 1 / 32.0},
+		{2 / 32.0, 6 / 32.0, 6 / 32.0, 2 / 32.0},
+		{1 / 32.0, 3 / 32.0, 3 / 32.0, 1 / 32.0},
+	};
+
+	const float filter44[4][4] =
+	{
+		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0},
+		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
+		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
+		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0}
+	};
+
+	//cal new size
+	int newWidth = (int)(this->width*scale);
+	int newHeight = (int)(this->height*scale);
+
+	//create new canvas
+	uint8_t* canvas = new uint8_t[newWidth*newHeight * 4];
+	memset(canvas, 0, sizeof(uint8_t)*newWidth*newHeight * 4);
+
+
+	//process
+	for (int y = 0; y < newHeight; y++)
+	{
+		for (int x = 0; x < newWidth; x++)
+		{
+			//a new pixel
+			float sum[3] = { 0.0 };
+			if (x % 2 == 0 && y % 2 == 0)
+			{
+				for (int dy = -1; dy <= 1; dy++)
+				{
+					for (int dx = -1; dx <= 1; dx++)
+					{
+						int srcX = (x / scale) + dx;
+						int srcY = (y / scale) + dy;
+
+						//out of bound, reflect
+						if (srcX < 0)
+						{
+							srcX *= -1;
+						}
+						if (srcX >= this->width)
+						{
+							int ref = srcX - this->width + 1;
+							srcX -= 2 * ref;
+						}
+
+						if (srcY < 0)
+						{
+							srcY *= -1;
+						}
+						if (srcY >= this->height)
+						{
+							int ref = srcY - this->height + 1;
+							srcY -= 2 * ref;
+						}
+
+
+						//summing
+						sum[0] += this->getColor(srcX, srcY, R)*filter33[dx + 1][dy + 1];
+						sum[1] += this->getColor(srcX, srcY, G)*filter33[dx + 1][dy + 1];
+						sum[2] += this->getColor(srcX, srcY, B)*filter33[dx + 1][dy + 1];
+					}
+				}
+			}
+			else if (x % 2 == 1 && y % 2 == 0)
+			{
+				for (int dy = -1; dy <= 1; dy++)
+				{
+					for (int dx = -1; dx <= 2; dx++)
+					{
+						int srcX = (x / scale) + dx;
+						int srcY = (y / scale) + dy;
+
+						//out of bound, reflect
+						if (srcX < 0)
+						{
+							srcX *= -1;
+						}
+						if (srcX >= this->width)
+						{
+							int ref = srcX - this->width + 1;
+							srcX -= 2 * ref;
+						}
+
+						if (srcY < 0)
+						{
+							srcY *= -1;
+						}
+						if (srcY >= this->height)
+						{
+							int ref = srcY - this->height + 1;
+							srcY -= 2 * ref;
+						}
+
+
+						//summing
+						sum[0] += this->getColor(srcX, srcY, R)*filter34[dy + 1][dx + 1];
+						sum[1] += this->getColor(srcX, srcY, G)*filter34[dy + 1][dx + 1];
+						sum[2] += this->getColor(srcX, srcY, B)*filter34[dy + 1][dx + 1];
+					}
+				}
+			}
+			else if (x % 2 == 0 && y % 2 == 1)
+			{
+				for (int dy = -1; dy <= 2; dy++)
+				{
+					for (int dx = -1; dx <= 1; dx++)
+					{
+						int srcX = (x / scale) + dx;
+						int srcY = (y / scale) + dy;
+
+						//out of bound, reflect
+						if (srcX < 0)
+						{
+							srcX *= -1;
+						}
+						if (srcX >= this->width)
+						{
+							int ref = srcX - this->width + 1;
+							srcX -= 2 * ref;
+						}
+
+						if (srcY < 0)
+						{
+							srcY *= -1;
+						}
+						if (srcY >= this->height)
+						{
+							int ref = srcY - this->height + 1;
+							srcY -= 2 * ref;
+						}
+
+
+						//summing
+						sum[0] += this->getColor(srcX, srcY, R)*filter34[dx + 1][dy + 1];
+						sum[1] += this->getColor(srcX, srcY, G)*filter34[dx + 1][dy + 1];
+						sum[2] += this->getColor(srcX, srcY, B)*filter34[dx + 1][dy + 1];
+					}
+				}
+			}
+			else
+			{
+				for (int dy = -1; dy <= 2; dy++)
+				{
+					for (int dx = -1; dx <= 2; dx++)
+					{
+						int srcX = (x / scale) + dx;
+						int srcY = (y / scale) + dy;
+
+						//out of bound, reflect
+						if (srcX < 0)
+						{
+							srcX *= -1;
+						}
+						if (srcX >= this->width)
+						{
+							int ref = srcX - this->width + 1;
+							srcX -= 2 * ref;
+						}
+
+						if (srcY < 0)
+						{
+							srcY *= -1;
+						}
+						if (srcY >= this->height)
+						{
+							int ref = srcY - this->height + 1;
+							srcY -= 2 * ref;
+						}
+
+
+						//summing
+						sum[0] += this->getColor(srcX, srcY, R)*filter44[dx + 1][dy + 1];
+						sum[1] += this->getColor(srcX, srcY, G)*filter44[dx + 1][dy + 1];
+						sum[2] += this->getColor(srcX, srcY, B)*filter44[dx + 1][dy + 1];
+					}
+				}
+			}
+			canvas[(y*newWidth + x) * 4] = sum[0];
+			canvas[(y*newWidth + x) * 4 + 1] = sum[1];
+			canvas[(y*newWidth + x) * 4 + 2] = sum[2];
+			canvas[(y*newWidth + x) * 4 + 3] = 255;
+		}
+	}
+
+
+
+	//delete original image
+	delete[] this->data;
+	//point data to new image
+	this->data = canvas;
+	this->width = newWidth;
+	this->height = newHeight;
+
+	//this->Filter_Bartlett();
+	return true;
 }// Resize
 
 
@@ -1570,8 +1774,72 @@ bool TargaImage::Resize(float scale)
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Rotate(float angleDegrees)
 {
-	ClearToBlack();
-	return false;
+	const float filter44[4][4] =
+	{
+		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0},
+		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
+		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
+		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0}
+	};
+	float theta = angleDegrees * 2 * acos(-1) / 360.0;
+
+
+	//create new canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	memset(canvas, 0, sizeof(uint8_t)*this->width*this->height * 4);
+
+
+	//process
+	for (int y = 0; y < this->height; y++)
+	{
+		for (int x = 0; x < this->width; x++)
+		{
+			//a new pixel
+			float sum[3] = { 0.0 };
+			for (int dy = -1; dy <= 2; dy++)
+			{
+				for (int dx = -1; dx <= 2; dx++)
+				{
+					int srcX = ((x - (this->width / 2))*cos(-theta) - (y - (this->height / 2)) * sin(-theta)) + (this->width / 2) + dx;
+					int srcY = ((x - (this->width / 2))*sin(-theta) + (y - (this->height / 2)) * cos(-theta)) + (this->height / 2) + dy;
+
+					//out of bound, black
+					if ((srcX < 0) || (srcX >= this->width) || (srcY < 0) || (srcY >= this->height))
+					{
+
+					}
+					else
+					{
+						//summing
+						sum[0] += this->getColor(srcX, srcY, R)*filter44[dx + 1][dy + 1];
+						sum[1] += this->getColor(srcX, srcY, G)*filter44[dx + 1][dy + 1];
+						sum[2] += this->getColor(srcX, srcY, B)*filter44[dx + 1][dy + 1];
+					}
+
+
+
+
+
+
+				}
+
+			}
+			canvas[(y*this->width + x) * 4] = sum[0];
+			canvas[(y*this->width + x) * 4 + 1] = sum[1];
+			canvas[(y*this->width + x) * 4 + 2] = sum[2];
+			canvas[(y*this->width + x) * 4 + 3] = 255;
+		}
+	}
+
+
+
+	//delete original image
+	delete[] this->data;
+	//point data to new image
+	this->data = canvas;
+
+	//this->Filter_Bartlett();
+	return true;
 }// Rotate
 
 
