@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <ctime>
 #include <ppl.h>
+#include <iomanip>
 
 using namespace std;
 
@@ -1532,7 +1533,82 @@ bool TargaImage::NPR_Paint()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Half_Size()
 {
-	return this->Resize(0.5);
+	const float filter33[3][3] =
+	{
+		{1 / 16.0, 1 / 8.0, 1 / 16.0},
+		{1 / 8.0, 1 / 4.0, 1 / 8.0},
+		{1 / 16.0, 1 / 8.0, 1 / 16.0},
+	};
+
+	//cal new size
+	int newWidth = (int)(this->width / 2);
+	int newHeight = (int)(this->height / 2);
+
+	//create new canvas
+	uint8_t* canvas = new uint8_t[newWidth*newHeight * 4];
+	memset(canvas, 0, sizeof(uint8_t)*newWidth*newHeight * 4);
+
+
+	//process
+	for (int y = 0; y < newHeight; y++)
+	{
+		for (int x = 0; x < newWidth; x++)
+		{
+			//a new pixel
+			float sum[3] = { 0.0 };
+			for (int dy = -1; dy <= 1; dy++)
+			{
+				for (int dx = -1; dx <= 1; dx++)
+				{
+					int srcX = (x * 2) + dx;
+					int srcY = (y * 2) + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
+					{
+						srcX *= -1;
+					}
+					if (srcX >= this->width)
+					{
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += this->getColor(srcX, srcY, R)*filter33[dx + 1][dy + 1];
+					sum[1] += this->getColor(srcX, srcY, G)*filter33[dx + 1][dy + 1];
+					sum[2] += this->getColor(srcX, srcY, B)*filter33[dx + 1][dy + 1];
+				}
+
+			}
+			canvas[(y*newWidth + x) * 4] = sum[0];
+			canvas[(y*newWidth + x) * 4 + 1] = sum[1];
+			canvas[(y*newWidth + x) * 4 + 2] = sum[2];
+			canvas[(y*newWidth + x) * 4 + 3] = 255;
+		}
+	}
+
+
+
+	//delete original image
+	delete[] this->data;
+	//point data to new image
+	this->data = canvas;
+	this->width = newWidth;
+	this->height = newHeight;
+
+	return true;
 }// Half_Size
 
 
@@ -1542,18 +1618,6 @@ bool TargaImage::Half_Size()
 //
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Double_Size()
-{
-	return this->Resize(2.0);
-}// Double_Size
-
-
-///////////////////////////////////////////////////////////////////////////////
-//
-//      Scale the image dimensions by the given factor.  The given factor is 
-//  assumed to be greater than one.  Return success of operation.
-//
-///////////////////////////////////////////////////////////////////////////////
-bool TargaImage::Resize(float scale)
 {
 	const float filter33[3][3] =
 	{
@@ -1578,8 +1642,8 @@ bool TargaImage::Resize(float scale)
 	};
 
 	//cal new size
-	int newWidth = (int)(this->width*scale);
-	int newHeight = (int)(this->height*scale);
+	int newWidth = (int)(this->width * 2);
+	int newHeight = (int)(this->height * 2);
 
 	//create new canvas
 	uint8_t* canvas = new uint8_t[newWidth*newHeight * 4];
@@ -1599,8 +1663,8 @@ bool TargaImage::Resize(float scale)
 				{
 					for (int dx = -1; dx <= 1; dx++)
 					{
-						int srcX = (x / scale) + dx;
-						int srcY = (y / scale) + dy;
+						int srcX = (x / 2) + dx;
+						int srcY = (y / 2) + dy;
 
 						//out of bound, reflect
 						if (srcX < 0)
@@ -1637,8 +1701,8 @@ bool TargaImage::Resize(float scale)
 				{
 					for (int dx = -1; dx <= 2; dx++)
 					{
-						int srcX = (x / scale) + dx;
-						int srcY = (y / scale) + dy;
+						int srcX = (x / 2) + dx;
+						int srcY = (y / 2) + dy;
 
 						//out of bound, reflect
 						if (srcX < 0)
@@ -1675,8 +1739,8 @@ bool TargaImage::Resize(float scale)
 				{
 					for (int dx = -1; dx <= 1; dx++)
 					{
-						int srcX = (x / scale) + dx;
-						int srcY = (y / scale) + dy;
+						int srcX = (x / 2) + dx;
+						int srcY = (y / 2) + dy;
 
 						//out of bound, reflect
 						if (srcX < 0)
@@ -1713,8 +1777,8 @@ bool TargaImage::Resize(float scale)
 				{
 					for (int dx = -1; dx <= 2; dx++)
 					{
-						int srcX = (x / scale) + dx;
-						int srcY = (y / scale) + dy;
+						int srcX = (x / 2) + dx;
+						int srcY = (y / 2) + dy;
 
 						//out of bound, reflect
 						if (srcX < 0)
@@ -1761,7 +1825,192 @@ bool TargaImage::Resize(float scale)
 	this->width = newWidth;
 	this->height = newHeight;
 
-	//this->Filter_Bartlett();
+	return true;
+}// Double_Size
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+//      Scale the image dimensions by the given factor.  The given factor is 
+//  assumed to be greater than one.  Return success of operation.
+//
+///////////////////////////////////////////////////////////////////////////////
+bool TargaImage::Resize(float scale)
+{
+	float** filter = NULL;
+	int filterWidthHalf = (scale * 2 - 1);
+	if (filterWidthHalf < 1)
+	{
+		filterWidthHalf = 1;
+	}
+
+	//new matrix
+	filter = new float*[filterWidthHalf * 2 + 1];
+	for (int i = 0; i < filterWidthHalf * 2 + 1; i++)
+	{
+		filter[i] = new float[filterWidthHalf * 2 + 1];
+	}
+
+	//center
+	filter[filterWidthHalf][filterWidthHalf] = 1 / 4.0;
+	//top half
+	for (int i = 0; i < filterWidthHalf; i++)
+	{
+		filter[filterWidthHalf][i] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*(i + 1.0));
+		for (int j = 0; j < filterWidthHalf; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+		}
+		for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+		}
+	}
+	//center line
+	for (int j = 0; j < filterWidthHalf; j++)
+	{
+		filter[j][filterWidthHalf] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+	}
+	for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+	{
+		filter[j][filterWidthHalf] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+	}
+	//bottom half
+	for (int i = filterWidthHalf + 1; i < filterWidthHalf * 2 + 1; i++)
+	{
+		filter[filterWidthHalf][i] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - i));
+		for (int j = 0; j < filterWidthHalf; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+		}
+		for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+		}
+	}
+
+	//calculate matrix sum for divding usage
+	float matrixSum = 0;
+	for (int i = 0; i < 2 * filterWidthHalf + 1; i++)
+	{
+		for (int j = 0; j < 2 * filterWidthHalf + 1; j++)
+		{
+			matrixSum += filter[i][j];
+		}
+	}
+
+	//DEBUG Output matrix
+	/*cout << fixed << setprecision(7);
+	for (int i = 0; i < 2 * filterWidthHalf + 1; i++)
+	{
+		for (int j = 0; j < 2 * filterWidthHalf + 1; j++)
+		{
+			cout << filter[i][j] << "\t";
+		}
+		cout << "\n";
+	}
+	cout << "Sum: " << matrixSum << endl;*/
+	//DEBUG
+
+
+
+
+	//cal new size
+	int newWidth = (int)(this->width*scale);
+	int newHeight = (int)(this->height*scale);
+
+	//create new canvas
+	uint8_t* canvas = new uint8_t[newWidth*newHeight * 4];
+	memset(canvas, 0, sizeof(uint8_t)*newWidth*newHeight * 4);
+
+
+	//copy to bigger canvas
+	for (int y = 0; y < newHeight; y++)
+	{
+		for (int x = 0; x < newWidth; x++)
+		{
+			int srcX = (x / scale);
+			int srcY = (y / scale);
+			/*if (ceil(srcX) == floor(srcX) && floor(srcY) == ceil(srcY))*/
+			{
+				canvas[(y*newWidth + x) * 4] = this->data[(int)(srcY*this->width + srcX) * 4];
+				canvas[(y*newWidth + x) * 4 + 1] = this->data[(int)(srcY*this->width + srcX) * 4 + 1];
+				canvas[(y*newWidth + x) * 4 + 2] = this->data[(int)(srcY*this->width + srcX) * 4 + 2];
+				canvas[(y*newWidth + x) * 4 + 3] = 255;
+			}
+		}
+	}
+	//create new canvas for filter
+	uint8_t* canvas2 = new uint8_t[newWidth*newHeight * 4];
+	memset(canvas2, 0, sizeof(uint8_t)*newWidth*newHeight * 4);
+
+	//bartlett
+	for (int y = 0; y < newHeight; y++)
+	{
+		for (int x = 0; x < newWidth; x++)
+		{
+			//a new pixel
+			float sum[3] = { 0.0 };
+
+			for (int dy = -filterWidthHalf; dy <= filterWidthHalf; dy++)
+			{
+				for (int dx = -filterWidthHalf; dx <= filterWidthHalf; dx++)
+				{
+					int srcX = x + dx;
+					int srcY = y + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
+					{
+						srcX *= -1;
+					}
+					if (srcX >= newWidth)
+					{
+						int ref = srcX - newWidth + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= newHeight)
+					{
+						int ref = srcY - newHeight + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += canvas[(srcX + newWidth * srcY) * 4] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+					sum[1] += canvas[(srcX + newWidth * srcY) * 4 + 1] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+					sum[2] += canvas[(srcX + newWidth * srcY) * 4 + 2] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+				}
+
+			}
+			canvas2[(y*newWidth + x) * 4] = sum[0] / matrixSum;
+			canvas2[(y*newWidth + x) * 4 + 1] = sum[1] / matrixSum;
+			canvas2[(y*newWidth + x) * 4 + 2] = sum[2] / matrixSum;
+			canvas2[(y*newWidth + x) * 4 + 3] = 255;
+		}
+	}
+
+	//delete matrix
+
+	for (int i = 0; i < filterWidthHalf * 2 + 1; i++)
+	{
+		delete[] filter[i];
+	}
+	delete[] filter;
+
+	//delete original image
+	delete[] this->data;
+	delete[] canvas;
+	//point data to new image
+	this->data = canvas2;
+	this->width = newWidth;
+	this->height = newHeight;
+
 	return true;
 }// Resize
 
@@ -1774,19 +2023,89 @@ bool TargaImage::Resize(float scale)
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Rotate(float angleDegrees)
 {
-	const float filter44[4][4] =
+	float** filter = NULL;
+	int filterWidthHalf = 2;
+	if (filterWidthHalf < 1)
 	{
-		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0},
-		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
-		{3 / 64.0, 9 / 64.0, 9 / 64.0, 3 / 64.0},
-		{1 / 64.0, 3 / 64.0, 3 / 64.0, 1 / 64.0}
-	};
+		filterWidthHalf = 1;
+	}
+
+	//new matrix
+	filter = new float*[filterWidthHalf * 2 + 1];
+	for (int i = 0; i < filterWidthHalf * 2 + 1; i++)
+	{
+		filter[i] = new float[filterWidthHalf * 2 + 1];
+	}
+
+	//center
+	filter[filterWidthHalf][filterWidthHalf] = 1 / 4.0;
+	//top half
+	for (int i = 0; i < filterWidthHalf; i++)
+	{
+		filter[filterWidthHalf][i] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*(i + 1.0));
+		for (int j = 0; j < filterWidthHalf; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+		}
+		for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+		}
+	}
+	//center line
+	for (int j = 0; j < filterWidthHalf; j++)
+	{
+		filter[j][filterWidthHalf] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+	}
+	for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+	{
+		filter[j][filterWidthHalf] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+	}
+	//bottom half
+	for (int i = filterWidthHalf + 1; i < filterWidthHalf * 2 + 1; i++)
+	{
+		filter[filterWidthHalf][i] = filter[filterWidthHalf][filterWidthHalf] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - i));
+		for (int j = 0; j < filterWidthHalf; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*(j + 1.0));
+		}
+		for (int j = filterWidthHalf + 1; j < filterWidthHalf * 2 + 1; j++)
+		{
+			filter[j][i] = filter[filterWidthHalf][i] * (1.0 / (filterWidthHalf + 1)*((2 * filterWidthHalf + 1) - j));
+		}
+	}
+
+	//calculate matrix sum for divding usage
+	float matrixSum = 0;
+	for (int i = 0; i < 2 * filterWidthHalf + 1; i++)
+	{
+		for (int j = 0; j < 2 * filterWidthHalf + 1; j++)
+		{
+			matrixSum += filter[i][j];
+		}
+	}
+
+	//DEBUG Output matrix
+	/*cout << fixed << setprecision(7);
+	for (int i = 0; i < 2 * filterWidthHalf + 1; i++)
+	{
+		for (int j = 0; j < 2 * filterWidthHalf + 1; j++)
+		{
+			cout << filter[i][j] << "\t";
+		}
+		cout << "\n";
+	}
+	cout << "Sum: " << matrixSum << endl;*/
+	//DEBUG
+
+
+
+
 	float theta = angleDegrees * 2 * acos(-1) / 360.0;
 
-
 	//create new canvas
-	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
-	memset(canvas, 0, sizeof(uint8_t)*this->width*this->height * 4);
+	uint8_t* canvas2 = new uint8_t[this->width*this->height * 4];
+	memset(canvas2, 0, sizeof(uint8_t)*this->width*this->height * 4);
 
 
 	//process
@@ -1794,47 +2113,83 @@ bool TargaImage::Rotate(float angleDegrees)
 	{
 		for (int x = 0; x < this->width; x++)
 		{
+			int srcX = ((x - (this->width / 2))*cos(-theta) - (y - (this->height / 2)) * sin(-theta)) + (this->width / 2);
+			int srcY = ((x - (this->width / 2))*sin(-theta) + (y - (this->height / 2)) * cos(-theta)) + (this->height / 2);
+
+			if (srcX >= 0 && srcX < this->width&&srcY >= 0 && srcY < this->height)
+			{
+				canvas2[(y*this->width + x) * 4] = this->getColor(srcX, srcY, R);
+				canvas2[(y*this->width + x) * 4 + 1] = this->getColor(srcX, srcY, G);
+				canvas2[(y*this->width + x) * 4 + 2] = this->getColor(srcX, srcY, B);
+				canvas2[(y*this->width + x) * 4 + 3] = 255;
+			}
+		}
+	}
+
+	//create new canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	memset(canvas, 0, sizeof(uint8_t)*this->width*this->height * 4);
+
+	for (int y = 0; y < this->height; y++)
+	{
+		for (int x = 0; x < this->width; x++)
+		{
 			//a new pixel
 			float sum[3] = { 0.0 };
-			for (int dy = -1; dy <= 2; dy++)
+			for (int dy = -filterWidthHalf; dy <= filterWidthHalf; dy++)
 			{
-				for (int dx = -1; dx <= 2; dx++)
+				for (int dx = -filterWidthHalf; dx <= filterWidthHalf; dx++)
 				{
-					int srcX = ((x - (this->width / 2))*cos(-theta) - (y - (this->height / 2)) * sin(-theta)) + (this->width / 2) + dx;
-					int srcY = ((x - (this->width / 2))*sin(-theta) + (y - (this->height / 2)) * cos(-theta)) + (this->height / 2) + dy;
-
-					//out of bound, black
-					if ((srcX < 0) || (srcX >= this->width) || (srcY < 0) || (srcY >= this->height))
+					int srcX = x + dx;
+					int srcY = y + dy;
+					//out of bound, reflect
+					if (srcX < 0)
 					{
-
+						srcX *= -1;
 					}
-					else
+					if (srcX >= this->width)
 					{
-						//summing
-						sum[0] += this->getColor(srcX, srcY, R)*filter44[dx + 1][dy + 1];
-						sum[1] += this->getColor(srcX, srcY, G)*filter44[dx + 1][dy + 1];
-						sum[2] += this->getColor(srcX, srcY, B)*filter44[dx + 1][dy + 1];
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
 					}
 
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
 
-
-
+					//summing
+					sum[0] += canvas2[(srcX + this->width*srcY) * 4] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+					sum[1] += canvas2[(srcX + this->width*srcY) * 4 + 1] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+					sum[2] += canvas2[(srcX + this->width*srcY) * 4 + 2] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
 
 
 				}
 
 			}
-			canvas[(y*this->width + x) * 4] = sum[0];
-			canvas[(y*this->width + x) * 4 + 1] = sum[1];
-			canvas[(y*this->width + x) * 4 + 2] = sum[2];
+			canvas[(y*this->width + x) * 4] = sum[0] / matrixSum;
+			canvas[(y*this->width + x) * 4 + 1] = sum[1] / matrixSum;
+			canvas[(y*this->width + x) * 4 + 2] = sum[2] / matrixSum;
 			canvas[(y*this->width + x) * 4 + 3] = 255;
 		}
 	}
 
+	//delete matrix
 
+	for (int i = 0; i < filterWidthHalf * 2 + 1; i++)
+	{
+		delete[] filter[i];
+	}
+	delete[] filter;
 
 	//delete original image
 	delete[] this->data;
+	delete[] canvas2;
 	//point data to new image
 	this->data = canvas;
 
