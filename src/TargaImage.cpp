@@ -1344,20 +1344,6 @@ bool TargaImage::Filter_Gaussian()
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-//from: https://stackoverflow.com/questions/9330915/number-of-combinations-n-choose-r-in-c
-inline unsigned long long nChoosek(unsigned int n, unsigned int k)
-{
-	if (k > n) return 0;
-	if (k * 2 > n) k = n - k;
-	if (k == 0) return 1;
-
-	unsigned long long result = n;
-	for (int i = 2; i <= k; ++i) {
-		result *= (n - i + 1);
-		result /= i;
-	}
-	return result;
-}
 
 bool TargaImage::Filter_Gaussian_N(unsigned int N)
 {
@@ -1372,7 +1358,7 @@ bool TargaImage::Filter_Gaussian_N(unsigned int N)
 	uint64_t* bin = new uint64_t[N];
 	for (int i = 0; i < N; i++)
 	{
-		bin[i] = nChoosek(N - 1, i);
+		bin[i] = Binomial(N - 1, i);
 	}
 
 	//calculate 2D Gaussian martix
@@ -1414,10 +1400,10 @@ bool TargaImage::Filter_Gaussian_N(unsigned int N)
 	this->invaildPixel = 0;
 
 	int halfN = (int)(N / 2);
-	for (int i = 0; i < this->height; i++)
+	Concurrency::parallel_for(0, this->width*this->height, [&](int idx)
 	{
-		for (int j = 0; j < this->width; j++)
-		{
+		int Xx = idx % this->width;
+		int Yy = idx / this->width;
 			//color sum in RGB
 			double sum[3] = { 0 };
 			//NxN matrix
@@ -1428,8 +1414,8 @@ bool TargaImage::Filter_Gaussian_N(unsigned int N)
 				{
 
 					//offseting xy
-					int x = j + l;
-					int y = i + k;
+					int x = Xx + l;
+					int y = Yy + k;
 					//out of bound, reflect
 					if (x < 0)
 					{
@@ -1463,12 +1449,12 @@ bool TargaImage::Filter_Gaussian_N(unsigned int N)
 			//sum[2] /= divider;
 
 			//to canvas
-			canvas[(i*this->width + j) * 4] = sum[0];
-			canvas[(i*this->width + j) * 4 + 1] = sum[1];
-			canvas[(i*this->width + j) * 4 + 2] = sum[2];
-			canvas[(i*this->width + j) * 4 + 3] = 255;
-		}
-	}
+			canvas[(Yy*this->width + Xx) * 4] = sum[0];
+			canvas[(Yy*this->width + Xx) * 4 + 1] = sum[1];
+			canvas[(Yy*this->width + Xx) * 4 + 2] = sum[2];
+			canvas[(Yy*this->width + Xx) * 4 + 3] = 255;
+		
+	});
 
 	//copy canvas to display
 	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
@@ -1492,8 +1478,107 @@ bool TargaImage::Filter_Gaussian_N(unsigned int N)
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Filter_Edge()
 {
-	ClearToBlack();
-	return false;
+	//Bartlett filter matrix
+	double weightMat[5][5] =
+	{
+		{0.027,0.111,0.194,0.111,0.027},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.194,0.611,1.000,0.611,0.194},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.027,0.111,0.194,0.111,0.027}
+	};
+
+	double divider = 0;
+	for (int i = 0; i < 5; i++)
+	{
+		for (int j = 0; j < 5; j++)
+		{
+			divider += weightMat[i][j];
+		}
+	}
+
+	//new image canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	//prevent over pixel be wrong color;
+	this->invaildPixel = 0;
+
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//color sum in RGB
+			int sum[3] = { 0 };
+			//5x5 matrix
+			for (int k = -2; k <= 2; k++)
+			{
+				for (int l = -2; l <= 2; l++)
+				{
+
+					//offseting xy
+					int x = j + l;
+					int y = i + k;
+					//out of bound, reflect
+					if (x < 0)
+					{
+						x *= -1;
+					}
+					if (x >= this->width)
+					{
+						int ref = x - this->width + 1;
+						x -= 2 * ref;
+					}
+
+					if (y < 0)
+					{
+						y *= -1;
+					}
+					if (y >= this->height)
+					{
+						int ref = y - this->height + 1;
+						y -= 2 * ref;
+					}
+					//summing
+					sum[0] += this->getColor(x, y, R)*weightMat[l + 2][k + 2];
+					sum[1] += this->getColor(x, y, G)*weightMat[l + 2][k + 2];
+					sum[2] += this->getColor(x, y, B)*weightMat[l + 2][k + 2];
+
+				}
+			}
+			//div by 5x5
+			sum[0] /= divider;
+			sum[1] /= divider;
+			sum[2] /= divider;
+
+			//to canvas
+			canvas[(i*this->width + j) * 4] = sum[0];
+			canvas[(i*this->width + j) * 4 + 1] = sum[1];
+			canvas[(i*this->width + j) * 4 + 2] = sum[2];
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//subtract source
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//to canvas
+			int Rr = this->getColor(j, i, R) - canvas[(i*this->width + j) * 4];
+			int Gg = this->getColor(j, i, G) - canvas[(i*this->width + j) * 4 + 1];
+			int Bb = this->getColor(j, i, B) - canvas[(i*this->width + j) * 4 + 2];
+			//if<0 to 0
+			canvas[(i*this->width + j) * 4] = (Rr < 0) ? 0 : Rr;
+			canvas[(i*this->width + j) * 4 + 1] = (Gg < 0) ? 0 : Gg;
+			canvas[(i*this->width + j) * 4 + 2] = (Bb < 0) ? 0 : Bb;
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//copy canvas to display
+	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
+	//recycle memory
+	delete[] canvas;
+	return true;
 }// Filter_Edge
 
 
@@ -1505,8 +1590,114 @@ bool TargaImage::Filter_Edge()
 ///////////////////////////////////////////////////////////////////////////////
 bool TargaImage::Filter_Enhance()
 {
-	ClearToBlack();
-	return false;
+	//Bartlett filter matrix
+	double weightMat[5][5] =
+	{
+		{0.027,0.111,0.194,0.111,0.027},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.194,0.611,1.000,0.611,0.194},
+		{0.111,0.361,0.611,0.361,0.111},
+		{0.027,0.111,0.194,0.111,0.027}
+	};
+
+	double divider = 0;
+	for (int i = 0; i < 5; i++)
+	{
+		for (int j = 0; j < 5; j++)
+		{
+			divider += weightMat[i][j];
+		}
+	}
+
+	//new image canvas
+	uint8_t* canvas = new uint8_t[this->width*this->height * 4];
+	//prevent over pixel be wrong color;
+	this->invaildPixel = 0;
+
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//color sum in RGB
+			int sum[3] = { 0 };
+			//5x5 matrix
+			for (int k = -2; k <= 2; k++)
+			{
+				for (int l = -2; l <= 2; l++)
+				{
+
+					//offseting xy
+					int x = j + l;
+					int y = i + k;
+					//out of bound, reflect
+					if (x < 0)
+					{
+						x *= -1;
+					}
+					if (x >= this->width)
+					{
+						int ref = x - this->width + 1;
+						x -= 2 * ref;
+					}
+
+					if (y < 0)
+					{
+						y *= -1;
+					}
+					if (y >= this->height)
+					{
+						int ref = y - this->height + 1;
+						y -= 2 * ref;
+					}
+					//summing
+					sum[0] += this->getColor(x, y, R)*weightMat[l + 2][k + 2];
+					sum[1] += this->getColor(x, y, G)*weightMat[l + 2][k + 2];
+					sum[2] += this->getColor(x, y, B)*weightMat[l + 2][k + 2];
+
+				}
+			}
+			//div by 5x5
+			sum[0] /= divider;
+			sum[1] /= divider;
+			sum[2] /= divider;
+
+			//to canvas
+			canvas[(i*this->width + j) * 4] = sum[0];
+			canvas[(i*this->width + j) * 4 + 1] = sum[1];
+			canvas[(i*this->width + j) * 4 + 2] = sum[2];
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//subtract source then add it on source
+	for (int i = 0; i < this->height; i++)
+	{
+		for (int j = 0; j < this->width; j++)
+		{
+			//to canvas
+			int Rr = this->getColor(j, i, R) * 2 - canvas[(i*this->width + j) * 4];
+			int Gg = this->getColor(j, i, G) * 2 - canvas[(i*this->width + j) * 4 + 1];
+			int Bb = this->getColor(j, i, B) * 2 - canvas[(i*this->width + j) * 4 + 2];
+
+			//ceiling
+
+			Rr = (Rr > 255) ? 255 : Rr;
+			Gg = (Gg > 255) ? 255 : Gg;
+			Bb = (Bb > 255) ? 255 : Bb;
+
+			//if<0 to 0
+			canvas[(i*this->width + j) * 4] = (Rr < 0) ? 0 : Rr;
+			canvas[(i*this->width + j) * 4 + 1] = (Gg < 0) ? 0 : Gg;
+			canvas[(i*this->width + j) * 4 + 2] = (Bb < 0) ? 0 : Bb;
+			canvas[(i*this->width + j) * 4 + 3] = 255;
+		}
+	}
+
+	//copy canvas to display
+	memcpy_s(this->data, this->width*this->height * 4, canvas, this->width*this->height * 4);
+	//recycle memory
+	delete[] canvas;
+	return true;
 }// Filter_Enhance
 
 
@@ -1651,170 +1842,170 @@ bool TargaImage::Double_Size()
 
 
 	//process
-	for (int y = 0; y < newHeight; y++)
+	Concurrency::parallel_for(0, newWidth*newHeight, [&](int idx)
 	{
-		for (int x = 0; x < newWidth; x++)
+		int x = idx % newWidth;
+		int y = idx / newWidth;
+		//a new pixel
+		float sum[3] = { 0.0 };
+		if (x % 2 == 0 && y % 2 == 0)
 		{
-			//a new pixel
-			float sum[3] = { 0.0 };
-			if (x % 2 == 0 && y % 2 == 0)
+			for (int dy = -1; dy <= 1; dy++)
 			{
-				for (int dy = -1; dy <= 1; dy++)
+				for (int dx = -1; dx <= 1; dx++)
 				{
-					for (int dx = -1; dx <= 1; dx++)
+					int srcX = (x / 2) + dx;
+					int srcY = (y / 2) + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
 					{
-						int srcX = (x / 2) + dx;
-						int srcY = (y / 2) + dy;
-
-						//out of bound, reflect
-						if (srcX < 0)
-						{
-							srcX *= -1;
-						}
-						if (srcX >= this->width)
-						{
-							int ref = srcX - this->width + 1;
-							srcX -= 2 * ref;
-						}
-
-						if (srcY < 0)
-						{
-							srcY *= -1;
-						}
-						if (srcY >= this->height)
-						{
-							int ref = srcY - this->height + 1;
-							srcY -= 2 * ref;
-						}
-
-
-						//summing
-						sum[0] += this->getColor(srcX, srcY, R)*filter33[dx + 1][dy + 1];
-						sum[1] += this->getColor(srcX, srcY, G)*filter33[dx + 1][dy + 1];
-						sum[2] += this->getColor(srcX, srcY, B)*filter33[dx + 1][dy + 1];
+						srcX *= -1;
 					}
+					if (srcX >= this->width)
+					{
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += this->getColor(srcX, srcY, R)*filter33[dx + 1][dy + 1];
+					sum[1] += this->getColor(srcX, srcY, G)*filter33[dx + 1][dy + 1];
+					sum[2] += this->getColor(srcX, srcY, B)*filter33[dx + 1][dy + 1];
 				}
 			}
-			else if (x % 2 == 1 && y % 2 == 0)
-			{
-				for (int dy = -1; dy <= 1; dy++)
-				{
-					for (int dx = -1; dx <= 2; dx++)
-					{
-						int srcX = (x / 2) + dx;
-						int srcY = (y / 2) + dy;
-
-						//out of bound, reflect
-						if (srcX < 0)
-						{
-							srcX *= -1;
-						}
-						if (srcX >= this->width)
-						{
-							int ref = srcX - this->width + 1;
-							srcX -= 2 * ref;
-						}
-
-						if (srcY < 0)
-						{
-							srcY *= -1;
-						}
-						if (srcY >= this->height)
-						{
-							int ref = srcY - this->height + 1;
-							srcY -= 2 * ref;
-						}
-
-
-						//summing
-						sum[0] += this->getColor(srcX, srcY, R)*filter34[dy + 1][dx + 1];
-						sum[1] += this->getColor(srcX, srcY, G)*filter34[dy + 1][dx + 1];
-						sum[2] += this->getColor(srcX, srcY, B)*filter34[dy + 1][dx + 1];
-					}
-				}
-			}
-			else if (x % 2 == 0 && y % 2 == 1)
-			{
-				for (int dy = -1; dy <= 2; dy++)
-				{
-					for (int dx = -1; dx <= 1; dx++)
-					{
-						int srcX = (x / 2) + dx;
-						int srcY = (y / 2) + dy;
-
-						//out of bound, reflect
-						if (srcX < 0)
-						{
-							srcX *= -1;
-						}
-						if (srcX >= this->width)
-						{
-							int ref = srcX - this->width + 1;
-							srcX -= 2 * ref;
-						}
-
-						if (srcY < 0)
-						{
-							srcY *= -1;
-						}
-						if (srcY >= this->height)
-						{
-							int ref = srcY - this->height + 1;
-							srcY -= 2 * ref;
-						}
-
-
-						//summing
-						sum[0] += this->getColor(srcX, srcY, R)*filter34[dx + 1][dy + 1];
-						sum[1] += this->getColor(srcX, srcY, G)*filter34[dx + 1][dy + 1];
-						sum[2] += this->getColor(srcX, srcY, B)*filter34[dx + 1][dy + 1];
-					}
-				}
-			}
-			else
-			{
-				for (int dy = -1; dy <= 2; dy++)
-				{
-					for (int dx = -1; dx <= 2; dx++)
-					{
-						int srcX = (x / 2) + dx;
-						int srcY = (y / 2) + dy;
-
-						//out of bound, reflect
-						if (srcX < 0)
-						{
-							srcX *= -1;
-						}
-						if (srcX >= this->width)
-						{
-							int ref = srcX - this->width + 1;
-							srcX -= 2 * ref;
-						}
-
-						if (srcY < 0)
-						{
-							srcY *= -1;
-						}
-						if (srcY >= this->height)
-						{
-							int ref = srcY - this->height + 1;
-							srcY -= 2 * ref;
-						}
-
-
-						//summing
-						sum[0] += this->getColor(srcX, srcY, R)*filter44[dx + 1][dy + 1];
-						sum[1] += this->getColor(srcX, srcY, G)*filter44[dx + 1][dy + 1];
-						sum[2] += this->getColor(srcX, srcY, B)*filter44[dx + 1][dy + 1];
-					}
-				}
-			}
-			canvas[(y*newWidth + x) * 4] = sum[0];
-			canvas[(y*newWidth + x) * 4 + 1] = sum[1];
-			canvas[(y*newWidth + x) * 4 + 2] = sum[2];
-			canvas[(y*newWidth + x) * 4 + 3] = 255;
 		}
-	}
+		else if (x % 2 == 1 && y % 2 == 0)
+		{
+			for (int dy = -1; dy <= 1; dy++)
+			{
+				for (int dx = -1; dx <= 2; dx++)
+				{
+					int srcX = (x / 2) + dx;
+					int srcY = (y / 2) + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
+					{
+						srcX *= -1;
+					}
+					if (srcX >= this->width)
+					{
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += this->getColor(srcX, srcY, R)*filter34[dy + 1][dx + 1];
+					sum[1] += this->getColor(srcX, srcY, G)*filter34[dy + 1][dx + 1];
+					sum[2] += this->getColor(srcX, srcY, B)*filter34[dy + 1][dx + 1];
+				}
+			}
+		}
+		else if (x % 2 == 0 && y % 2 == 1)
+		{
+			for (int dy = -1; dy <= 2; dy++)
+			{
+				for (int dx = -1; dx <= 1; dx++)
+				{
+					int srcX = (x / 2) + dx;
+					int srcY = (y / 2) + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
+					{
+						srcX *= -1;
+					}
+					if (srcX >= this->width)
+					{
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += this->getColor(srcX, srcY, R)*filter34[dx + 1][dy + 1];
+					sum[1] += this->getColor(srcX, srcY, G)*filter34[dx + 1][dy + 1];
+					sum[2] += this->getColor(srcX, srcY, B)*filter34[dx + 1][dy + 1];
+				}
+			}
+		}
+		else
+		{
+			for (int dy = -1; dy <= 2; dy++)
+			{
+				for (int dx = -1; dx <= 2; dx++)
+				{
+					int srcX = (x / 2) + dx;
+					int srcY = (y / 2) + dy;
+
+					//out of bound, reflect
+					if (srcX < 0)
+					{
+						srcX *= -1;
+					}
+					if (srcX >= this->width)
+					{
+						int ref = srcX - this->width + 1;
+						srcX -= 2 * ref;
+					}
+
+					if (srcY < 0)
+					{
+						srcY *= -1;
+					}
+					if (srcY >= this->height)
+					{
+						int ref = srcY - this->height + 1;
+						srcY -= 2 * ref;
+					}
+
+
+					//summing
+					sum[0] += this->getColor(srcX, srcY, R)*filter44[dx + 1][dy + 1];
+					sum[1] += this->getColor(srcX, srcY, G)*filter44[dx + 1][dy + 1];
+					sum[2] += this->getColor(srcX, srcY, B)*filter44[dx + 1][dy + 1];
+				}
+			}
+		}
+		canvas[(y*newWidth + x) * 4] = sum[0];
+		canvas[(y*newWidth + x) * 4 + 1] = sum[1];
+		canvas[(y*newWidth + x) * 4 + 2] = sum[2];
+		canvas[(y*newWidth + x) * 4 + 3] = 255;
+	});
+
 
 
 
@@ -1925,75 +2116,75 @@ bool TargaImage::Resize(float scale)
 
 
 	//copy to bigger canvas
-	for (int y = 0; y < newHeight; y++)
+	Concurrency::parallel_for(0, newWidth*newHeight, [&](int idx)
 	{
-		for (int x = 0; x < newWidth; x++)
+		int x = idx % newWidth;
+		int y = idx / newWidth;
+		int srcX = (x / scale);
+		int srcY = (y / scale);
+		/*if (ceil(srcX) == floor(srcX) && floor(srcY) == ceil(srcY))*/
 		{
-			int srcX = (x / scale);
-			int srcY = (y / scale);
-			/*if (ceil(srcX) == floor(srcX) && floor(srcY) == ceil(srcY))*/
-			{
-				canvas[(y*newWidth + x) * 4] = this->data[(int)(srcY*this->width + srcX) * 4];
-				canvas[(y*newWidth + x) * 4 + 1] = this->data[(int)(srcY*this->width + srcX) * 4 + 1];
-				canvas[(y*newWidth + x) * 4 + 2] = this->data[(int)(srcY*this->width + srcX) * 4 + 2];
-				canvas[(y*newWidth + x) * 4 + 3] = 255;
-			}
+			canvas[(y*newWidth + x) * 4] = this->data[(int)(srcY*this->width + srcX) * 4];
+			canvas[(y*newWidth + x) * 4 + 1] = this->data[(int)(srcY*this->width + srcX) * 4 + 1];
+			canvas[(y*newWidth + x) * 4 + 2] = this->data[(int)(srcY*this->width + srcX) * 4 + 2];
+			canvas[(y*newWidth + x) * 4 + 3] = 255;
 		}
-	}
+
+	});
 	//create new canvas for filter
 	uint8_t* canvas2 = new uint8_t[newWidth*newHeight * 4];
 	memset(canvas2, 0, sizeof(uint8_t)*newWidth*newHeight * 4);
 
 	//bartlett
-	for (int y = 0; y < newHeight; y++)
+	Concurrency::parallel_for(0, newWidth*newHeight, [&](int idx)
 	{
-		for (int x = 0; x < newWidth; x++)
+		int x = idx % newWidth;
+		int y = idx / newWidth;
+		//a new pixel
+		float sum[3] = { 0.0 };
+
+		for (int dy = -filterWidthHalf; dy <= filterWidthHalf; dy++)
 		{
-			//a new pixel
-			float sum[3] = { 0.0 };
-
-			for (int dy = -filterWidthHalf; dy <= filterWidthHalf; dy++)
+			for (int dx = -filterWidthHalf; dx <= filterWidthHalf; dx++)
 			{
-				for (int dx = -filterWidthHalf; dx <= filterWidthHalf; dx++)
+				int srcX = x + dx;
+				int srcY = y + dy;
+
+				//out of bound, reflect
+				if (srcX < 0)
 				{
-					int srcX = x + dx;
-					int srcY = y + dy;
-
-					//out of bound, reflect
-					if (srcX < 0)
-					{
-						srcX *= -1;
-					}
-					if (srcX >= newWidth)
-					{
-						int ref = srcX - newWidth + 1;
-						srcX -= 2 * ref;
-					}
-
-					if (srcY < 0)
-					{
-						srcY *= -1;
-					}
-					if (srcY >= newHeight)
-					{
-						int ref = srcY - newHeight + 1;
-						srcY -= 2 * ref;
-					}
-
-
-					//summing
-					sum[0] += canvas[(srcX + newWidth * srcY) * 4] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
-					sum[1] += canvas[(srcX + newWidth * srcY) * 4 + 1] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
-					sum[2] += canvas[(srcX + newWidth * srcY) * 4 + 2] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+					srcX *= -1;
+				}
+				if (srcX >= newWidth)
+				{
+					int ref = srcX - newWidth + 1;
+					srcX -= 2 * ref;
 				}
 
+				if (srcY < 0)
+				{
+					srcY *= -1;
+				}
+				if (srcY >= newHeight)
+				{
+					int ref = srcY - newHeight + 1;
+					srcY -= 2 * ref;
+				}
+
+
+				//summing
+				sum[0] += canvas[(srcX + newWidth * srcY) * 4] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+				sum[1] += canvas[(srcX + newWidth * srcY) * 4 + 1] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
+				sum[2] += canvas[(srcX + newWidth * srcY) * 4 + 2] * filter[dx + filterWidthHalf][dy + filterWidthHalf];
 			}
-			canvas2[(y*newWidth + x) * 4] = sum[0] / matrixSum;
-			canvas2[(y*newWidth + x) * 4 + 1] = sum[1] / matrixSum;
-			canvas2[(y*newWidth + x) * 4 + 2] = sum[2] / matrixSum;
-			canvas2[(y*newWidth + x) * 4 + 3] = 255;
+
 		}
-	}
+		canvas2[(y*newWidth + x) * 4] = sum[0] / matrixSum;
+		canvas2[(y*newWidth + x) * 4 + 1] = sum[1] / matrixSum;
+		canvas2[(y*newWidth + x) * 4 + 2] = sum[2] / matrixSum;
+		canvas2[(y*newWidth + x) * 4 + 3] = 255;
+
+	});
 
 	//delete matrix
 
@@ -2024,11 +2215,7 @@ bool TargaImage::Resize(float scale)
 bool TargaImage::Rotate(float angleDegrees)
 {
 	float** filter = NULL;
-	int filterWidthHalf = 2;
-	if (filterWidthHalf < 1)
-	{
-		filterWidthHalf = 1;
-	}
+	int filterWidthHalf = 1;
 
 	//new matrix
 	filter = new float*[filterWidthHalf * 2 + 1];
